@@ -1,0 +1,186 @@
+@import "tailwindcss";
+
+/* Filmov · Theme: Professional Light Studio (Clipchamp Style: Crisp White & Vibrant Purple) */
+
+:root {
+  color-scheme: light;
+
+  /* Typography */
+  --font-display: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-body: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  /* Clipchamp Crisp White & Soft Slate Surfaces */
+  --color-paper-0: #f4f6fa;        /* Soft ambient canvas background */
+  --color-paper-1: #ffffff;        /* Pure white card & dock surface */
+  --color-paper-2: #fafbfd;        /* Header bar, secondary toolbars */
+  --color-paper-3: #f1f3f9;        /* Inputs, tracks, sub-containers */
+  --color-paper-4: #e5e8f2;        /* Hover background, active states */
+  --color-paper-elevated: #ffffff; /* Modals, dropdowns, popovers */
+
+  /* Hairline Borders & Rules */
+  --color-rule: #e5e8f0;          /* Clean divider borders */
+  --color-rule-focus: #8b5cf6;    /* Purple focus border */
+
+  /* High-Contrast Crisp Ink */
+  --color-ink: #0f172a;           /* Deep slate-900 primary text */
+  --color-ink-muted: #475569;     /* Slate-600 secondary metadata */
+  --color-ink-faint: #94a3b8;     /* Slate-400 inactive labels & hints */
+
+  /* Clipchamp Vibrant Purple / Violet Accent System */
+  --color-accent: #7c3aed;        /* Vibrant Purple (Primary CTA) */
+  --color-accent-hover: #6d28d9;  /* Deep Violet Hover */
+  --color-accent-subtle: rgba(124, 58, 237, 0.09); /* Soft purple tint */
+  --color-focus: #8b5cf6;
+
+  /* Functional Status Colors */
+  --color-playhead: #7c3aed;      /* Precision Purple Playhead */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-track-video: #6366f1;   /* Indigo for video clips */
+  --color-track-audio: #10b981;   /* Emerald for audio clips */
+  --color-track-sub: #f59e0b;     /* Amber for subtitle clips */
+  --color-track-text: #8b5cf6;    /* Violet for text clips */
+}
+
+@theme {
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+
+  --color-paper-0: var(--color-paper-0);
+  --color-paper-1: var(--color-paper-1);
+  --color-paper-2: var(--color-paper-2);
+  --color-paper-3: var(--color-paper-3);
+  --color-paper-4: var(--color-paper-4);
+  --color-paper-elevated: var(--color-paper-elevated);
+
+  --color-rule: var(--color-rule);
+  --color-rule-focus: var(--color-rule-focus);
+
+  --color-ink: var(--color-ink);
+  --color-ink-muted: var(--color-ink-muted);
+  --color-ink-faint: var(--color-ink-faint);
+
+  --color-accent: var(--color-accent);
+  --color-accent-subtle: var(--color-accent-subtle);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-focus: var(--color-focus);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-paper-0);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  user-select: none;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Typography Hierarchy */
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-display);
+  font-style: normal;
+  letter-spacing: -0.02em;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Clipchamp Sleek Light Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Interactive Hover Utilities & Micro-Animations */
+.btn-purple {
+  background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(124, 58, 237, 0.25), 0 1px 2px rgba(124, 58, 237, 0.15);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-purple:hover {
+  background: linear-gradient(135deg, #6d28d9 0%, #7c3aed 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.35), 0 2px 4px rgba(124, 58, 237, 0.2);
+}
+
+.btn-purple:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn-soft {
+  background-color: var(--color-paper-1);
+  color: var(--color-ink);
+  border: 1px solid var(--color-rule);
+  transition: all 0.15s ease;
+}
+
+.btn-soft:hover {
+  background-color: var(--color-paper-3);
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.btn-soft:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.hover-card-clipchamp {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hover-card-clipchamp:hover {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
+  border-color: rgba(124, 58, 237, 0.35);
+}
+
+/* Text Selection */
+::selection {
+  background: var(--color-accent-subtle);
+  color: #7c3aed;
+}
+
+/* Precision focus ring */
+*:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.8s infinite;
+}
