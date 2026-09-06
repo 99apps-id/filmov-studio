@@ -146,7 +146,7 @@ graph TD
 1. **Node.js**: `v18.0.0` atau lebih baru (disarankan Node.js v20 LTS).
 2. **Rust & Cargo**: Versi `1.75+` ([Install Rust via rustup](https://rustup.rs/)).
 3. **C++ Build Tools**: Visual Studio Build Tools (C++) untuk Windows.
-4. **yt-dlp & FFmpeg** *(Opsional)*: Tersedia otomatis melalui WinGet atau path aplikasi.
+4. **yt-dlp & FFmpeg**: **Sudah dibundel** di `src-tauri/binaries/` dan ikut terbawa installer — tidak perlu instal manual. Gunakan tombol **Install Engines / Update yt-dlp** di menu Settings untuk menarik versi terbaru.
 
 ### 1. Clone Repository
 ```bash
@@ -183,6 +183,8 @@ npm run tauri build -- --bundles nsis,msi
 File output installer akan dihasilkan pada folder berikut:
 - **NSIS Setup (.exe):** `src-tauri/target/release/bundle/nsis/Filmov_0.1.0_x64-setup.exe`
 - **WiX Installer (.msi):** `src-tauri/target/release/bundle/msi/Filmov_0.1.0_x64_en-US.msi`
+
+> **Catatan bundle engine.** Installer menyertakan `yt-dlp` + `ffmpeg`/`ffprobe` (via `bundle.resources`) sehingga aplikasi langsung bisa mengunduh YouTube/IG/X dan mengonversi ke MP3 secara offline. Hal ini membuat ukuran installer lebih besar (±213 MB). Binari pihak ketiga ini tunduk pada lisensinya masing-masing — lihat `src-tauri/binaries/THIRD-PARTY-LICENSES.md` (FFmpeg GPLv3, yt-dlp Unlicense).
 
 ### Build Binary Standalone (.exe)
 ```bash
@@ -221,11 +223,13 @@ filmov/
 │   ├── icons/                    # Multi-resolusi Icon Bundle (.ico, .icns, .png)
 │   ├── src/
 │   │   ├── commands/
-│   │   │   ├── binary_manager.rs # Deteksi & Resolver Path FFmpeg/yt-dlp
-│   │   │   ├── downloader.rs     # IPC Command Pengunduhan & Save-As
-│   │   │   ├── export.rs         # GPU Hardware Acceleration & Video Encoding
-│   │   │   ├── video.rs          # Asset Protocol Scopes, Probing & Thumbnails
+│   │   │   ├── binary_manager.rs # Deteksi & Resolver FFmpeg/yt-dlp, install_engines
+│   │   │   ├── downloader.rs     # IPC Command Pengunduhan, Convert MP3 & Save-As
+│   │   │   ├── video.rs          # Asset Protocol, Probing, Waveform & Export GPU
+│   │   │   ├── project.rs        # Save/Load Project (path-traversal guard)
 │   │   │   └── voice.rs          # SAPI Speech Synthesis & Whisper Transcription
+│   ├── binaries/                 # Engine ter-bundle: ffmpeg/ffprobe/yt-dlp (.exe) + lisensi
+│   ├── icons/                    # Multi-resolusi Icon Bundle (.ico, .icns, .png)
 │   │   ├── lib.rs                # Tauri Plugin Registration & IPC Routing
 │   │   └── main.rs               # Rust Binary Entrypoint
 │   ├── Cargo.toml                # Rust Dependencies & Build Config
@@ -265,7 +269,7 @@ Pastikan Anda menggunakan versi build terbaru. Filmov telah mengintegrasikan ops
 <details>
 <summary><b>2. Mengapa file lokal tidak bisa diputar di timeline (Asset Protocol 403)?</b></summary>
 <br>
-Tauri v2 menggunakan sistem keamanan ketat pada protokol file. Filmov telah mendaftarkan seluruh direktori pengguna (<code>$VIDEO</code>, <code>$DOWNLOAD</code>, <code>$AUDIO</code>, <code>C:\</code>, dll.) ke dalam <code>security.assetProtocol.scope</code> dan mendaftarkan direktori runtime secara dinamis saat aplikasi dibuka.
+Tauri v2 menggunakan sistem keamanan ketat pada protokol file. Filmov hanya membatasi akses ke direktori konten pengguna standar (<code>$VIDEO</code>, <code>$DOWNLOAD</code>, <code>$AUDIO</code>, <code>$DOCUMENT</code>, <code>$DESKTOP</code>, <code>$TEMP</code>, <code>$RESOURCE</code>) — <b>tanpa</b> akses <code>C:\</code>, home/AppData, atau <code>**</code>. Saat Anda mengimpor file, akses hanya diberikan untuk file tersebut (non-rekursif).
 </details>
 
 <details>
