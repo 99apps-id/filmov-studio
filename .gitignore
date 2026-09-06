@@ -27,3 +27,8 @@ dist-ssr
 src-tauri/target
 src-tauri/gen
 *.rs.bk
+
+# Termigo temp scripts
+.termigo_*.py
+src-tauri/app-icon-1024-src.png
+.termigo_*

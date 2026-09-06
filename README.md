@@ -4,6 +4,8 @@
 
   # Filmov — Video Editor & Social Downloader
 
+  <p><b>🌐 <a href="README.en.md">Read in English</a></b></p>
+
   **Hardware-Accelerated Professional Video Editor & Multi-Platform Social Media Downloader**
 
   [![Tauri v2](https://img.shields.io/badge/Tauri-v2.11-24C8D8?style=for-the-badge&logo=tauri&logoColor=white)](https://tauri.app/)
@@ -199,7 +201,7 @@ File executable mandiri: `src-tauri/target/release/filmov.exe`
 ```text
 filmov/
 ├── public/                       # Aset publik, ikon, dan sampel media
-│   ├── app-icon-512.png          # Master icon aplikasi
+│   ├── logo_square.png           # Master icon aplikasi (sumber ikon aplikasi)
 │   ├── logo.png                  # Logo transparan Filmov
 │   ├── sample-video.mp4          # Sampel video offline
 │   └── sample-audio.mp3          # Sampel audio offline
