@@ -14,18 +14,20 @@ export function getPlayableMediaUrl(pathOrUrl: string | null | undefined): strin
     return trimmed;
   }
 
-  // Intercept raw social media webpage URLs that cannot be decoded by HTML5 <video>
+  // Intercept raw social media *webpage* URLs that cannot be decoded by HTML5
+  // <video>. The domain check is restricted to real http(s) web URLs so that a
+  // local filesystem path (e.g. C:\Users\Iwan\Videos\Filmov\Downloads\task-x.mp4
+  // or ...\Videos\...) is never misclassified and silently replaced with the
+  // bundled sample clip.
   const isSocialWebpage =
+    /^https?:\/\//i.test(trimmed) &&
     (trimmed.includes("youtube.com") ||
       trimmed.includes("youtu.be") ||
       trimmed.includes("instagram.com") ||
       trimmed.includes("twitter.com") ||
       trimmed.includes("x.com") ||
       trimmed.includes("tiktok.com")) &&
-    !trimmed.includes(".mp4") &&
-    !trimmed.includes(".webm") &&
-    !trimmed.includes(".mp3") &&
-    !trimmed.includes(".m3u8");
+    !/\.(mp4|webm|mp3|m4a|mov|m3u8)(\?|#|$)/i.test(trimmed);
 
   if (isSocialWebpage) {
     return "/sample-video.mp4";

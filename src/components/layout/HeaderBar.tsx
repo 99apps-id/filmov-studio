@@ -420,7 +420,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         <div
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-mono font-medium shadow-2xs"
           title={
-            hardwareInfo
+            hardwareInfo?.accelerationType
               ? `Acceleration Engine: ${hardwareInfo.accelerationType.toUpperCase()} (${hardwareInfo.gpuName || "GPU"})`
               : "Hardware Engine Active (NVENC / QuickSync / AMF)"
           }

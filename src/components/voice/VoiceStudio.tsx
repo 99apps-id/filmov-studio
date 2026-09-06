@@ -165,7 +165,36 @@ export const VoiceStudio: React.FC = () => {
 
   const [isPreviewing, setIsPreviewing] = useState(false);
 
-  // Preview Voice locally using Web Speech API
+  // Map the UI voice profile to a real (language, gender) pair. Keep this in sync
+  // with the backend engine (voice.rs) so the preview matches the generated file.
+  const resolveVoiceProfile = (voiceId: string) => {
+    const v = voiceId.toLowerCase();
+    const isFemale =
+      v.includes("female") ||
+      v.includes("siti") ||
+      v.includes("gadis") ||
+      v.includes("emily") ||
+      v.includes("zira");
+    const isIndo =
+      v.startsWith("id") ||
+      v.includes("indonesia") ||
+      v.includes("bimo") ||
+      v.includes("ardi") ||
+      v.includes("siti") ||
+      v.includes("gadis");
+    const isEn = v.includes("en") || v.includes("adam") || v.includes("emily");
+    return {
+      isFemale,
+      gender: isFemale ? "female" : "male",
+      lang: isIndo ? "id-ID" : isEn ? "en-US" : "id-ID",
+    };
+  };
+
+  // Preview Voice locally using Web Speech API.
+  // Voices are picked by (1) exact language + gender, (2) same language, (3) same
+  // gender - NEVER the browser's default voice whenever a closer match exists, so
+  // selecting "Indonesian Male (Bimo)" no longer speaks with a default English
+  // (often female) voice.
   const handlePreviewVoice = () => {
     if (!ttsText.trim() || typeof window === "undefined") return;
 
@@ -176,34 +205,71 @@ export const VoiceStudio: React.FC = () => {
         return;
       }
 
+      const profile = resolveVoiceProfile(selectedVoice);
+      const femaleTokens = [
+        "female",
+        "zira",
+        "siti",
+        "gadis",
+        "emily",
+        "aria",
+        "jenny",
+        "susan",
+        "hazel",
+        "libby",
+        "catherine",
+        "linda",
+        "tracy",
+      ];
+      const maleTokens = [
+        "male",
+        "david",
+        "mark",
+        "ardi",
+        "bimo",
+        "adam",
+        "christopher",
+        "eric",
+        "daniel",
+        "guy",
+        "george",
+        "richard",
+        "alex",
+      ];
+      const voiceGender = (name: string): "male" | "female" | null => {
+        const n = name.toLowerCase();
+        if (femaleTokens.some((t) => n.includes(t))) return "female";
+        if (maleTokens.some((t) => n.includes(t))) return "male";
+        return null;
+      };
+      const voiceLangOk = (voice: SpeechSynthesisVoice): boolean => {
+        const name = voice.name.toLowerCase();
+        const lang = voice.lang.toLowerCase();
+        if (profile.lang.startsWith("id")) {
+          return lang.startsWith("id") || name.includes("indonesia");
+        }
+        return lang.startsWith("en") || name.includes("english");
+      };
+
+      const sameLanguage = availableVoices.filter(voiceLangOk);
+      const match: SpeechSynthesisVoice | undefined =
+        // 1) exact language + requested gender
+        sameLanguage.find((v) => voiceGender(v.name) === profile.gender) ||
+        // 2) any voice with the requested language
+        sameLanguage[0] ||
+        // 3) requested gender from any installed voice (avoids a wrong-gender default)
+        availableVoices.find((v) => voiceGender(v.name) === profile.gender);
+
       const utterance = new SpeechSynthesisUtterance(ttsText);
       utterance.rate = ttsSpeed;
-
-      // Find optimal voice matching selected voice or Indonesian language
-      const isIndo = selectedVoice.startsWith("id") || selectedVoice.includes("indonesia");
-      const isFemale = selectedVoice.includes("female") || selectedVoice.includes("siti") || selectedVoice.includes("gadis");
-
-      const match = availableVoices.find((v) => {
-        if (isIndo) {
-          const isLangMatch = v.lang.toLowerCase().includes("id") || v.name.toLowerCase().includes("indonesia");
-          if (isLangMatch) {
-            if (isFemale && (v.name.toLowerCase().includes("female") || v.name.toLowerCase().includes("gadis") || v.name.toLowerCase().includes("siti") || v.name.toLowerCase().includes("zira"))) {
-              return true;
-            }
-            if (!isFemale && (v.name.toLowerCase().includes("male") || v.name.toLowerCase().includes("ardi") || v.name.toLowerCase().includes("bimo") || v.name.toLowerCase().includes("david"))) {
-              return true;
-            }
-            return true;
-          }
-        }
-        return v.name.toLowerCase().includes(selectedVoice.toLowerCase());
-      });
 
       if (match) {
         utterance.voice = match;
         utterance.lang = match.lang;
       } else {
-        utterance.lang = isIndo ? "id-ID" : "en-US";
+        // No usable local voice: keep the requested language tag instead of a
+        // hardcoded English default, so engines that honour it can apply it.
+        utterance.lang = profile.lang;
       }
 
       utterance.onend = () => setIsPreviewing(false);

@@ -41,12 +41,17 @@ pub fn run() {
             // `allow_asset_path` command right before it is rendered (see video.rs),
             // so no blanket drive/home allowance is needed here.
             let scopes = app.state::<tauri::Scopes>();
-            for dir_name in ["Videos", "Downloads", "Documents", "Desktop"] {
-                if let Some(base) = app.path().home_dir().ok() {
-                    let dir = base.join(dir_name).join("Filmov");
-                    if dir.exists() {
-                        let _ = scopes.allow_directory(&dir, true);
-                    }
+            if let Ok(home) = app.path().home_dir() {
+                // Create the managed media folders on the very first launch and grant
+                // the asset-protocol scope even when they were just created, so
+                // downloaded/exported media is playable immediately.
+                let media_root = home.join("Videos").join("Filmov");
+                for sub in ["Downloads", "Exports"] {
+                    let _ = std::fs::create_dir_all(media_root.join(sub));
+                }
+                for dir_name in ["Videos", "Downloads", "Documents", "Desktop"] {
+                    let dir = home.join(dir_name).join("Filmov");
+                    let _ = scopes.allow_directory(&dir, true);
                 }
             }
 

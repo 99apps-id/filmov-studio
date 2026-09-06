@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use tauri::Emitter;
 
 use super::binary_manager::{get_secure_media_dir, resolve_binary};
+use super::downloader::resolve_media_source_for_ffmpeg;
 
 static CURRENT_EXPORT_PID: AtomicU32 = AtomicU32::new(0);
 
@@ -335,6 +336,9 @@ pub async fn export_project(
     let mut video_clips: Vec<(f64, f64, f64, String, serde_json::Value)> = Vec::new();
     let mut audio_clips: Vec<(f64, f64, f64, String, serde_json::Value)> = Vec::new();
 
+    let had_clips = !clips.is_empty();
+    let mut skipped_sources: u32 = 0;
+
     for clip in clips {
         let start_offset = clip["startOffset"].as_f64().unwrap_or(0.0);
         let duration = clip["duration"].as_f64().unwrap_or(0.0);
@@ -347,7 +351,7 @@ pub async fn export_project(
             let path = media["path"].as_str().unwrap_or("").to_string();
 
             // Skip blob URLs and non-file URLs for FFmpeg input
-            let source = if path.starts_with("http")
+            let mut source = if path.starts_with("http")
                 || path.starts_with("blob:")
                 || path.starts_with("stock://")
             {
@@ -358,7 +362,26 @@ pub async fn export_project(
                 url
             };
 
-            if source.is_empty() || source.starts_with("blob:") || source.starts_with("stock://") {
+            // Bundled web assets (e.g. /sample-video.mp4 from the default demo
+            // timeline) are not files ffmpeg can open once packaged - materialize
+            // the embedded sample into the Downloads folder so exporting the
+            // default project works offline too.
+            source = resolve_media_source_for_ffmpeg(&source);
+
+            if source.is_empty()
+                || source.starts_with("blob:")
+                || source.starts_with("stock://")
+                || source.starts_with("http://asset.localhost")
+                || source.starts_with("https://asset.localhost")
+                || source.starts_with("asset:")
+            {
+                continue;
+            }
+
+            // A single missing local file must not abort the whole render: skip
+            // that clip and keep going (the skipped count is reported to the UI).
+            if !source.contains("://") && !std::path::Path::new(&source).exists() {
+                skipped_sources += 1;
                 continue;
             }
 
@@ -432,6 +455,47 @@ pub async fn export_project(
         );
 
         if let Some((ffmpeg_bin, _)) = ffmpeg_res {
+            // Fall back to the software encoder when the requested GPU encoder is
+            // not usable by this ffmpeg build - otherwise every render would fail
+            // with "Unknown encoder".
+            let mut effective_codec = codec.clone();
+            if effective_codec != "libx264" && !encoder_available(&ffmpeg_bin, &effective_codec) {
+                effective_codec = "libx264".to_string();
+                let _ = app_clone.emit(
+                    "export-progress",
+                    ExportProgressPayload {
+                        progress: 3.0,
+                        status: "GPU encoder tidak tersedia - beralih ke libx264 (software)"
+                            .to_string(),
+                        is_finished: false,
+                        output_path: None,
+                        error: None,
+                    },
+                );
+            }
+
+            if had_clips && video_clips.is_empty() && audio_clips.is_empty() {
+                let detail = if skipped_sources > 0 {
+                    format!(
+                        "Export gagal: {} sumber media tidak ditemukan atau tidak bisa dibaca di disk. Periksa file di folder Filmov/Downloads.",
+                        skipped_sources
+                    )
+                } else {
+                    "Export gagal: tidak ada klip video/audio yang valid untuk diekspor.".to_string()
+                };
+                let _ = app_clone.emit(
+                    "export-progress",
+                    ExportProgressPayload {
+                        progress: 0.0,
+                        status: "Export Error".to_string(),
+                        is_finished: true,
+                        output_path: None,
+                        error: Some(detail),
+                    },
+                );
+                return;
+            }
+
             if video_clips.is_empty() && audio_clips.is_empty() {
                 // No clips to export - generate blank output
                 let duration_str = format!("{:.2}", total_duration);
@@ -449,7 +513,9 @@ pub async fn export_project(
                     .arg("-i")
                     .arg(format!("anullsrc=r=44100:cl=stereo:d={}", duration_str))
                     .arg("-c:v")
-                    .arg(&codec)
+                    .arg(&effective_codec)
+                    .arg("-pix_fmt")
+                    .arg("yuv420p")
                     .arg("-c:a")
                     .arg("aac")
                     .arg("-b:a")
@@ -517,7 +583,14 @@ pub async fn export_project(
                 }
 
                 filter.push_str(&video_speed_expr(speed));
-                filter.push_str(&format!("[v{}]", input_idx));
+                // Normalise every input to one fps/pixel format/sample aspect so the
+                // concat filter never fails with "Input link parameters do not match"
+                // when the source clips have different frame rates or sizes.
+                filter.push_str(&format!(
+                    "fps={},setsar=1,format=yuv420p[v{}]",
+                    format_fps(output_fps),
+                    input_idx
+                ));
                 video_filter_parts.push(filter);
 
                 video_input_count += 1;
@@ -597,6 +670,9 @@ pub async fn export_project(
                     filter.push_str(&format!("afade=t=out:st={:.3}:d={:.3},", st, fade_out));
                 }
 
+                // Normalise audio sample rate/channel layout before concat so mixing
+                // e.g. a 44.1kHz mono MP3 with 48kHz stereo video audio cannot fail.
+                filter.push_str("aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,");
                 filter.push_str(&format!("asetpts=PTS-STARTPTS[a{}]", audio_input_count));
                 audio_filter_parts.push(filter);
 
@@ -660,7 +736,9 @@ pub async fn export_project(
             }
 
             cmd.arg("-c:v")
-                .arg(&codec)
+                .arg(&effective_codec)
+                .arg("-pix_fmt")
+                .arg("yuv420p")
                 .arg("-c:a")
                 .arg("aac")
                 .arg("-b:a")
@@ -798,5 +876,28 @@ fn video_speed_expr(speed: f64) -> String {
         format!("setpts={:.4}*PTS,", pts_factor)
     } else {
         String::new()
+    }
+}
+
+/// True when the given ffmpeg binary reports the encoder as available
+/// (`ffmpeg -h encoder=<name>` exits 0). Used to avoid picking a GPU encoder
+/// (nvenc/qsv/amf) that this build - or the current machine - cannot provide.
+fn encoder_available(ffmpeg_bin: &std::path::Path, codec: &str) -> bool {
+    if codec.is_empty() || codec == "libx264" {
+        return true;
+    }
+    Command::new(ffmpeg_bin)
+        .args(["-hide_banner", "-h", "encoder", codec])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Formats an fps value for ffmpeg filter usage ("30" instead of "30.000").
+fn format_fps(fps: f64) -> String {
+    if (fps - fps.round()).abs() < 1e-6 {
+        format!("{}", fps.round() as i64)
+    } else {
+        format!("{:.3}", fps).trim_end_matches('0').trim_end_matches('.').to_string()
     }
 }

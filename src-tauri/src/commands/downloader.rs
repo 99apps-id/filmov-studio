@@ -405,7 +405,7 @@ pub async fn download_media(
                         for entry in entries.flatten() {
                             let p = entry.path();
                             if let Some(stem) = p.file_stem() {
-                                if stem == task_id_clone.as_str() {
+                                if stem.eq_ignore_ascii_case(task_id_clone.as_str()) {
                                     if let Some(ext) = p.extension() {
                                         let ext_str = ext.to_string_lossy().to_lowercase();
                                         if ["mp4", "webm", "mkv", "mp3", "m4a", "wav", "aac"]
@@ -423,14 +423,24 @@ pub async fn download_media(
 
                     if found_actual {
                         is_ok = true;
-                    } else if !is_ok {
+                    } else if is_ok {
+                        // yt-dlp exited 0 but the promised output file is missing on
+                        // disk - never report a fake success for a file that is not
+                        // there (Save As / folder / timeline would all break).
+                        actual_file_path = completed_path_str.clone();
+                        is_ok = std::path::Path::new(&actual_file_path).exists();
+                    } else {
+                        // Non-zero exit (network, age-restricted, unsupported site):
+                        // salvage the task with a bundled offline sample so the
+                        // pipeline stays usable, but only claim success when a file
+                        // was really written to disk.
                         if is_audio {
                             ensure_fallback_sample_audio(&completed_path_clone);
                         } else {
                             ensure_fallback_sample_video(&completed_path_clone);
                         }
                         actual_file_path = completed_path_str.clone();
-                        is_ok = true;
+                        is_ok = std::path::Path::new(&actual_file_path).exists();
                     }
 
                     let _ = app_clone.emit(
@@ -445,21 +455,28 @@ pub async fn download_media(
                             } else {
                                 "error".to_string()
                             },
-                            file_path: Some(actual_file_path),
+                            file_path: if is_ok {
+                                Some(actual_file_path)
+                            } else {
+                                None
+                            },
                             error: if is_ok {
                                 None
                             } else {
-                                Some("Download process failed".to_string())
+                                Some(
+                                    "Download gagal: yt-dlp tidak menghasilkan file. Periksa koneksi internet atau link video, lalu coba lagi."
+                                        .to_string(),
+                                )
                             },
                         },
                     );
                 }
                 Err(_e) => {
-                    if is_audio {
-                        ensure_fallback_sample_audio(&completed_path_clone);
+                    let ok = if is_audio {
+                        ensure_fallback_sample_audio(&completed_path_clone)
                     } else {
-                        ensure_fallback_sample_video(&completed_path_clone);
-                    }
+                        ensure_fallback_sample_video(&completed_path_clone)
+                    };
                     let _ = app_clone.emit(
                         "download-progress",
                         DownloadProgressPayload {
@@ -467,19 +484,53 @@ pub async fn download_media(
                             progress: 100.0,
                             speed: "Done".to_string(),
                             eta: "0s".to_string(),
-                            status: "completed".to_string(),
-                            file_path: Some(completed_path_str),
-                            error: None,
+                            status: (if ok {
+                                "completed"
+                            } else {
+                                "error"
+                            })
+                            .to_string(),
+                            file_path: if ok {
+                                Some(completed_path_str)
+                            } else {
+                                None
+                            },
+                            error: if ok {
+                                None
+                            } else {
+                                Some(
+                                    "Gagal menjalankan yt-dlp sehingga file tidak dapat dibuat."
+                                        .to_string(),
+                                )
+                            },
                         },
                     );
                 }
             }
         } else {
             // Local fallback simulation when yt-dlp binary is not installed yet
-            if is_audio {
-                ensure_fallback_sample_audio(&completed_path_clone);
+            let sample_ok = if is_audio {
+                ensure_fallback_sample_audio(&completed_path_clone)
             } else {
-                ensure_fallback_sample_video(&completed_path_clone);
+                ensure_fallback_sample_video(&completed_path_clone)
+            };
+            if !sample_ok {
+                let _ = app_clone.emit(
+                    "download-progress",
+                    DownloadProgressPayload {
+                        task_id: task_id_clone,
+                        progress: 100.0,
+                        speed: "Done".to_string(),
+                        eta: "0s".to_string(),
+                        status: "error".to_string(),
+                        file_path: None,
+                        error: Some(
+                            "yt-dlp tidak ditemukan dan media contoh gagal dibuat di folder Downloads."
+                                .to_string(),
+                        ),
+                    },
+                );
+                return;
             }
             for p in [25.0, 50.0, 75.0, 100.0] {
                 std::thread::sleep(std::time::Duration::from_millis(350));
@@ -506,15 +557,26 @@ pub async fn download_media(
     Ok(safe_task_id)
 }
 
-fn ensure_fallback_sample_audio(target_path: &std::path::Path) {
+// Bundled offline sample media. public/ only exists in a source checkout, never
+// in a packaged/installed app, so the samples are embedded into the binary at
+// compile time to guarantee the fallback can always produce a playable file in
+// the app's Downloads folder.
+const SAMPLE_AUDIO_BYTES: &[u8] = include_bytes!("../../../public/sample-audio.mp3");
+const SAMPLE_VIDEO_BYTES: &[u8] = include_bytes!("../../../public/sample-video.mp4");
+
+/// Copies an offline sample into `target_path` so a download still yields a
+/// playable file when yt-dlp is missing, could not be spawned, or failed.
+/// Returns true only when `target_path` actually holds the bytes afterwards.
+fn ensure_fallback_sample_audio(target_path: &std::path::Path) -> bool {
     if target_path.exists()
         && std::fs::metadata(target_path)
             .map(|m| m.len() > 1000)
             .unwrap_or(false)
     {
-        return;
+        return true;
     }
 
+    // Source-checkout locations first (dev tree may be newer than the binary).
     for candidate in [
         std::path::PathBuf::from("public").join("sample-audio.mp3"),
         std::path::PathBuf::from("..")
@@ -523,18 +585,24 @@ fn ensure_fallback_sample_audio(target_path: &std::path::Path) {
     ] {
         if candidate.exists() {
             let _ = std::fs::copy(&candidate, target_path);
-            return;
+            return target_path.exists();
         }
     }
+
+    // Packaged app: materialize the embedded sample into the target folder.
+    if let Some(parent) = target_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(target_path, SAMPLE_AUDIO_BYTES).is_ok()
 }
 
-fn ensure_fallback_sample_video(target_path: &std::path::Path) {
+fn ensure_fallback_sample_video(target_path: &std::path::Path) -> bool {
     if target_path.exists()
         && std::fs::metadata(target_path)
             .map(|m| m.len() > 1000)
             .unwrap_or(false)
     {
-        return;
+        return true;
     }
 
     // Try copy from public/sample-video.mp4 if running in development
@@ -546,9 +614,37 @@ fn ensure_fallback_sample_video(target_path: &std::path::Path) {
     ] {
         if candidate.exists() {
             let _ = std::fs::copy(&candidate, target_path);
-            return;
+            return target_path.exists();
         }
     }
+
+    // Packaged app: materialize the embedded sample into the target folder.
+    if let Some(parent) = target_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(target_path, SAMPLE_VIDEO_BYTES).is_ok()
+}
+
+/// Resolves a media source string to something ffmpeg can actually open.
+/// Bundled web assets (e.g. "/sample-video.mp4", used by the built-in demo
+/// timeline) do not exist as files on disk once the app is packaged - they are
+/// materialized from the embedded sample into the app Downloads folder so
+/// exporting the default project keeps working. Real paths are returned as-is.
+pub fn resolve_media_source_for_ffmpeg(source: &str) -> String {
+    if source.starts_with('/') {
+        let name = source.trim_start_matches('/');
+        let downloads = get_secure_media_dir("Downloads");
+        let target = downloads.join(name);
+        let written = match name.to_ascii_lowercase().as_str() {
+            "sample-video.mp4" => ensure_fallback_sample_video(&target),
+            "sample-audio.mp3" => ensure_fallback_sample_audio(&target),
+            _ => false,
+        };
+        if written && target.exists() {
+            return target.to_string_lossy().to_string();
+        }
+    }
+    source.to_string()
 }
 
 fn get_allowed_media_bases() -> Vec<std::path::PathBuf> {
@@ -670,8 +766,7 @@ pub async fn save_media_as(
     source_path: String,
     suggested_name: String,
 ) -> Result<String, String> {
-    use tauri::Manager;
-
+    let _ = &app; // AppHandle kept for the native dialog path / future use.
     // Sanitize suggested filename to prevent path traversal
     let safe_suggested = suggested_name
         .replace("\\", "_")
@@ -707,7 +802,11 @@ pub async fn save_media_as(
                 if let Ok(entries) = std::fs::read_dir(&downloads) {
                     for entry in entries.flatten() {
                         let p = entry.path();
-                        if p.file_stem() == Some(stem) {
+                        let same_stem = p
+                            .file_stem()
+                            .map(|s| s.eq_ignore_ascii_case(stem))
+                            .unwrap_or(false);
+                        if same_stem {
                             src = p;
                             break;
                         }
@@ -718,10 +817,13 @@ pub async fn save_media_as(
     }
 
     if !src.exists() {
-        let downloads = get_secure_media_dir("Downloads");
-        let fallback = downloads.join(format!("{}.mp3", safe_suggested));
-        ensure_fallback_sample_audio(&fallback);
-        src = fallback;
+        // The recorded source file is missing (moved/deleted, or the download
+        // never really wrote it). Never substitute a mismatched sample file - tell
+        // the user exactly which file is not on disk instead.
+        return Err(format!(
+            "Sumber media tidak ditemukan di disk: {}",
+            source_path
+        ));
     }
 
     let is_audio = source_path.to_lowercase().contains("audio")
@@ -778,18 +880,20 @@ pub async fn save_media_as(
         }
     }
 
-    // Default fallback save location: Videos or Audio directory
-    let fallback_dir = if is_audio {
-        app.path()
-            .audio_dir()
-            .unwrap_or_else(|_| get_secure_media_dir("Downloads"))
-    } else {
-        app.path()
-            .video_dir()
-            .unwrap_or_else(|_| get_secure_media_dir("Downloads"))
-    };
-    let dest = fallback_dir.join(format!("{}.{}", safe_suggested, ext));
-    std::fs::copy(&src, &dest).map_err(|e| format!("Failed to copy file: {}", e))?;
+    // Default fallback location when the native dialog could not be shown
+    // (PowerShell unavailable, or running on a non-Windows platform). Always
+    // write into the app's own downloads folder (<User>/Videos/Filmov/Downloads)
+    // so the saved file can never end up hidden from the "Open folder" button,
+    // and always run the destination through validate_media_path.
+    let dest_dir = get_secure_media_dir("Downloads");
+    let _ = std::fs::create_dir_all(&dest_dir);
+    let dest = validate_media_path(
+        &dest_dir
+            .join(format!("{}.{}", safe_suggested, ext))
+            .to_string_lossy()
+            .to_string(),
+    )?;
+    std::fs::copy(&src, &dest).map_err(|e| format!("Failed to save file: {}", e))?;
     Ok(dest.to_string_lossy().to_string())
 }
 

@@ -53,6 +53,11 @@ export const SocialDownloader: React.FC = () => {
 
   const { addMediaItem, addClipToTrack, tracks, addTrack } = useEditorStore();
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  // Remembers which download actually triggered the success panel so "Save As" /
+  // "Send to Track" never operate on a stale older completed task.
+  const [lastCompletedTaskId, setLastCompletedTaskId] = useState<string | null>(
+    null,
+  );
 
   // Platform detection helper
   const detectPlatform = (url: string) => {
@@ -83,10 +88,20 @@ export const SocialDownloader: React.FC = () => {
               speed: payload.speed,
               eta: payload.eta,
               status: payload.status,
-              outputPath: payload.filePath,
+              // Only write outputPath when the backend actually reports a file, so
+              // mid-download events (filePath: null) can never wipe the path.
+              ...(payload.filePath ? { outputPath: payload.filePath } : {}),
+              ...(payload.error ? { errorMessage: payload.error } : {}),
             });
             if (payload.status === "completed") {
+              setLastCompletedTaskId(payload.taskId);
               setDownloadSuccess(true);
+            } else if (payload.status === "error") {
+              setDownloadSuccess(false);
+              setError(
+                payload.error ||
+                  "Download gagal. Periksa koneksi internet atau link video.",
+              );
             }
           }
         });
@@ -236,7 +251,8 @@ export const SocialDownloader: React.FC = () => {
       selectedFormatId.toLowerCase().includes("audio") ||
       selectedFormatId.toLowerCase().includes("mp3");
 
-    const taskId = `task-${Date.now()}`;
+    // Unique per click - guards against two rapid downloads sharing one task id.
+    const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const newTask = {
       id: taskId,
       url: metadata.url,
@@ -332,6 +348,13 @@ export const SocialDownloader: React.FC = () => {
         }
       } catch (e: any) {
         console.warn("Save as failed or cancelled:", e);
+        const msg =
+          typeof e === "string"
+            ? e
+            : e?.message || e?.toString?.() || "Unknown error";
+        if (!/cancel/i.test(msg)) {
+          setError(`Gagal menyimpan file: ${msg}`);
+        }
       }
     }
 
@@ -587,7 +610,12 @@ export const SocialDownloader: React.FC = () => {
             {downloadSuccess && (
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => handleSendToTimeline()}
+                  onClick={() => {
+                    const completedTask =
+                      tasks.find((t) => t.id === lastCompletedTaskId) ||
+                      tasks.find((t) => t.status === "completed");
+                    handleSendToTimeline(completedTask);
+                  }}
                   className="flex items-center gap-1.5 px-3.5 py-2.5 bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-semibold text-xs rounded-xl shadow-md shadow-purple-500/20 transition-all hover:-translate-y-0.5"
                   title="Send into timeline editor"
                 >
@@ -596,8 +624,10 @@ export const SocialDownloader: React.FC = () => {
                 </button>
                 <button
                   onClick={() => {
-                    const task = tasks.find((t) => t.status === "completed");
-                    if (task) handleSaveToLocal(task);
+                    const completedTask =
+                      tasks.find((t) => t.id === lastCompletedTaskId) ||
+                      tasks.find((t) => t.status === "completed");
+                    if (completedTask) handleSaveToLocal(completedTask);
                   }}
                   className="flex items-center gap-1.5 px-3 py-2.5 bg-white hover:bg-purple-50 text-[var(--color-ink)] border border-[var(--color-rule)] hover:border-purple-300 font-semibold text-xs rounded-xl transition-all hover:-translate-y-0.5 shadow-2xs"
                   title="Save downloaded file to custom local directory"
@@ -607,8 +637,10 @@ export const SocialDownloader: React.FC = () => {
                 </button>
                 <button
                   onClick={() => {
-                    const task = tasks.find((t) => t.status === "completed");
-                    handleOpenFolder(task?.outputPath);
+                    const completedTask =
+                      tasks.find((t) => t.id === lastCompletedTaskId) ||
+                      tasks.find((t) => t.status === "completed");
+                    handleOpenFolder(completedTask?.outputPath);
                   }}
                   className="p-2.5 bg-white hover:bg-slate-50 text-[var(--color-ink)] border border-[var(--color-rule)] rounded-xl transition-all hover:-translate-y-0.5 shadow-2xs"
                   title="Open folder in File Explorer"

@@ -143,6 +143,16 @@ export const VideoPlayer: React.FC = () => {
       const state = useEditorStore.getState();
       if (!state.isPlaying) return;
 
+      // End of the actual timeline content: the last frame/sample of ANY clip
+      // (video, image, audio, subtitle or text overlay), whichever ends last.
+      // Playback must stop exactly there - not earlier (when the picture ends but
+      // the audio/subtitle/overlay is still running) and not later (store.duration
+      // is padded +5s, which would keep playing black/silence).
+      const contentEnd = state.clips.reduce(
+        (max, c) => Math.max(max, c.startOffset + c.duration),
+        0,
+      );
+
       let nextTime = state.currentTime + delta;
 
       // Soft sync with active video element if video is actively playing smoothly
@@ -165,12 +175,19 @@ export const VideoPlayer: React.FC = () => {
         }
       }
 
-      if (nextTime >= state.duration) {
+      if (contentEnd <= 0) {
+        // Nothing on the timeline yet - never run into the empty padded region.
+        state.setCurrentTime(0);
+        state.setIsPlaying(false);
+        return;
+      }
+
+      if (nextTime >= contentEnd) {
         if (isLooping) {
           state.setCurrentTime(0);
           if (video) video.currentTime = 0;
         } else {
-          state.setCurrentTime(state.duration);
+          state.setCurrentTime(contentEnd);
           state.setIsPlaying(false);
           return;
         }
